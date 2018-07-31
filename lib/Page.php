@@ -6,7 +6,9 @@
 class Page implements JsonSerializable {
 
   private $location;
-  private $author;
+  private $date;
+  private $category;
+  private $source;
   private $image;
   private $content;
   private $title;
@@ -21,12 +23,29 @@ class Page implements JsonSerializable {
     return $this;
   }
 
-  public function getAuthor() {
-    return $this->author;
+  public function getDate() {
+    return $this->date;
   }
 
-  public function setAuthor($author) {
-    $this->author = $author;
+  public function setDate($date) {
+    $this->date = $date;
+    return $this;
+  }
+  public function getCategory() {
+    return $this->category;
+  }
+
+  public function setCategory($category) {
+    $this->category = $category;
+    return $this;
+  }  
+  
+  public function getSource() {
+    return $this->source;
+  }
+
+  public function setSource($source) {
+    $this->source = $source;
     return $this;
   }
 

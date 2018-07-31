@@ -4,10 +4,7 @@ require './lib/Pagescraper.php';
 
 $pageScraper = new Pagescraper;
 
-  // if(isset($_GET["q"])){
-  //   $_GET["targetUrl"] = $_GET["q"];
-  // }
-// die($_GET["targetUrl"]);
+ 
   $article = $pageScraper->getArticle($_GET["targetUrl"] );
 ?>
 <!DOCTYPE html>
@@ -27,7 +24,7 @@ $pageScraper = new Pagescraper;
 <?php
 
   if ( $article->getTitle() !== null ) {
-    echo "<h1>".str_replace('MyJoyOnline.com','SmartNews.com',$article->getTitle())."</h1>";
+    echo "<h1>".$article->getTitle()."</h1>";
     echo "<hr>";
   }
   if ( $article->getAuthor() !== null ) {

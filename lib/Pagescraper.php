@@ -1,4 +1,5 @@
 <?php
+require_once('db/initialize.php');
 require 'blacklist.php';
 require 'simple_html_dom.php';
 
@@ -6,6 +7,7 @@ require 'simple_html_dom.php';
 class Pagescraper {
 
   const SAVE_PATH = './save';
+  const IMAGE_PATH= './img';
 
 
   private $page;
@@ -83,9 +85,10 @@ class Pagescraper {
   private function getParagraphs(DOMNode $DOMNode) {
     $currentTag = $DOMNode->tagName;
     $content = "";
-
+    $i = 0;
     //whitelist
     if ($currentTag =="p" ) {
+      $i++;
       $content = "<p>";
       // this loop here check for any other inline formating within the paragraph
       foreach($DOMNode->childNodes as $node) {
@@ -97,7 +100,7 @@ class Pagescraper {
       }
       $content .= "</p>";
     }
-    if ($currentTag =="img" ) {
+    if ($currentTag =="img" && $i>0) {
       $content = "<div class='img_container'><img src='". $this->convertRelToAbs( $DOMNode->attributes->getNamedItem("src")->nodeValue,$this->page->getLocation() ) ."' style='vertical-align:middle'></img></div>";
     }
     //blacklist, if one of these elements are found, stop here as any further processing is a waste of time
@@ -154,14 +157,11 @@ class Pagescraper {
     foreach ( $childNodes as $childNode) {
       if ( isset($childNode->tagName) ) {
         if ($childNode->tagName == "title") {
-          $this->page->setTitle( $childNode->nodeValue );
+          $this->page->setTitle( str_replace('- MyJoyOnline.com','',$childNode->nodeValue ));
         }
         if ($childNode->tagName == "meta" && $childNode->hasAttributes() && null !== $childNode->attributes->getNamedItem("name") ) {
           if ($childNode->attributes->getNamedItem("name")->nodeValue == "title") {
-            $this->page->setTitle( $childNode->attributes->getNamedItem("content")->nodeValue );
-          }
-          if ($childNode->attributes->getNamedItem("name")->nodeValue == "author") {
-            $this->page->setAuthor( $childNode->attributes->getNamedItem("content")->nodeValue );
+            $this->page->setTitle( str_replace('MyJoyOnline.com','SmartNews.com',$childNode->attributes->getNamedItem("content")->nodeValue ));
           }
         }
       }
@@ -334,7 +334,10 @@ private function countParagraphs(DOMNode $rootDOM,DOMXPath $rootXpath) {
    * @param DOMDocument $doc
    * @param string $url
    */
-  function downloadArticle(DOMDocument $doc,$url) {
+  function downloadArticle(DOMDocument $doc,$url,$category,$source) {
+    //set category
+    $this->page->setCategory($category); //($source=='')? die($url):'';
+    $this->page->setSource($source);
     // validate url is actually a url
     if (filter_var($url, FILTER_VALIDATE_URL, FILTER_FLAG_PATH_REQUIRED | FILTER_FLAG_HOST_REQUIRED) === false) {
       // failed validation
@@ -357,9 +360,47 @@ private function countParagraphs(DOMNode $rootDOM,DOMXPath $rootXpath) {
     }
     // set article image
     $img_html = str_get_html($actualpage);
-    $image = $img_html->find('.article-image',0)->children(0)->src;
-    $this->page->setImage($image);
-  
+
+
+    if($source=='Citi News Room'){
+      if($category =='Business'){
+        $date = $img_html->find('.tie-date',0);
+        $date = str_replace('<span class="tie-date">','',$date);
+        $date = str_replace('</span>','',$date);
+        $date = stripslashes($date);
+        $date= date('Y-m-d',strtotime($date));
+        $image = $img_html->find('.wp-post-image',0)->src;
+      }
+      else{
+        
+        $re = '/(\d{4}-\d{1,2}-\d{1,2})/m';
+        preg_match($re, $img_html,$date);
+        $date = $date[0];
+        $image = $img_html->find('.post_layout_5_img',0)->src;
+      }
+    }
+    elseif ($source == 'GhanaWeb') {
+      $image = $img_html->find('.article-image',0)->children(0)->src;
+      $re = '/(\d{4}-\d{1,2}-\d{1,2})/m';
+      preg_match($re, $img_html,$date);
+      $date = $date[0];
+    }
+    else{
+      $re = '/\d{1,2}?-\d{1,2}?-\d{4}?/m';
+      preg_match($re, $img_html, $matches);
+      $date=date('Y-m-d',strtotime($matches[0]));
+      ($image = $img_html->find('.article-image',0)==null)? '':$image = $img_html->find('.article-image',0)->children(0)->src;
+    }
+
+    // set article date
+    $this->page->setDate($date);
+    if($image){
+      $imageId = substr($image, strrpos($image, '/') + 1);
+      $imageLoc =Pagescraper::IMAGE_PATH.'/'.$imageId;
+      copy($image,$imageLoc);
+
+      $this->page->setImage($imageLoc);
+    }
   }
 
 
@@ -426,20 +467,20 @@ private function countParagraphs(DOMNode $rootDOM,DOMXPath $rootXpath) {
 
   /**
    * @param string $url
-   * @param bool  $is_academic
+   *
    * @return Page
    */
-  function getNewArticle($url,$is_academic=false) {
-
+  function getNewArticle($url,$category="",$source="") {
+    
     $doc = new DOMDocument;
     $doc->preserveWhiteSpace = false;
 
-    $this->downloadArticle($doc,$url);
+    $this->downloadArticle($doc,$url,$category,$source);
 
     // if there is an amp version of the article use that instead (allows bypassing mulitple page limits)
     $ampLink = $this->checkAmpVersion($doc);
     if ($ampLink !== null) {
-        return $this->getNewArticle($ampLink ,$is_academic);
+        return $this->getNewArticle($ampLink,$category,$source);
     }
 
     $this->parseArticle($doc);
@@ -453,7 +494,9 @@ private function countParagraphs(DOMNode $rootDOM,DOMXPath $rootXpath) {
    * @param string $url
    * @return Page
    */
-  public function getArticle($url) {
+  public function getArticle($Url,$category="",$source="") {
+    (is_array($Url))? $url =$Url[0]:$url = $Url;
+    (!is_array($url) && strlen($url)===1)? $url =$Url:'';
     $encoded_url = base64_encode($url);
     $saved_path = Pagescraper::SAVE_PATH.'/'.$encoded_url.'.json';
 
@@ -464,22 +507,60 @@ private function countParagraphs(DOMNode $rootDOM,DOMXPath $rootXpath) {
       return $saved_article;
       
     }
-
+    
     // if there was no file or the save was old, then go get the article
-    $new_article = $this->getNewArticle($url);
+    $new_article = $this->getNewArticle($url,$category,$source);
     // and save it
     file_put_contents($saved_path, json_encode($new_article) );
+    $newsdate = $new_article->getDate();
+    $newslink = $url;
+    // $category =$category;// $this->page->getCategory();
+    global $database;
 
+    $sql = "SELECT id FROM news_tb  WHERE newslink='{$newslink}'";
+    $string_data = $database->query($sql);
+    $string_data = $database->fetch_array($string_data);
+    
+    if(strlen($newslink)>9 && !$string_data){
+      $sql = "INSERT INTO news_tb(newsdate,newslink,category,source) VALUES('{$newsdate}','{$newslink}','{$category}','{$source}')";
+      
+      $database->query($sql);
+    }
     return $new_article;
   }
 
   /**
    * @param mixed $url
-   * @param bool  $is_academic
+   *
    */
-  public function getJson($url,$is_academic=false) {
-    return json_encode($this->getArticle($url,$is_academic));
+  public function getJson($url) {
+    return json_encode($this->getArticle($url));
   }
+
+  function convertDate($date){
+    preg_match('/([a-zA-z]*)/m', $date, $month);
+    preg_match('/(\d{4})/m', $date, $year);
+    preg_match('/(\d{2})?,/m', $date, $day);
+    $month = ucfirst($month[0]);
+    switch($month){
+      case 'January' : $m = 1; break;
+      case 'February': $m = 2; break;
+      case 'March': $m = 3; break;
+      case 'April': $m = 4; break;
+      case 'May': $m = 5; break;
+      case 'June': $m = 6; break;
+      case 'July': $m = 7; break;
+      case 'August': $m = 8; break;
+      case 'September': $m = 9; break;
+      case 'October': $m = 10; break;
+      case 'November': $m = 11; break;
+      case 'December': $m = 12; break;
+    }
+    
+    return "{$year[0]}-{$month}-{$day[0]}";
+
+  }
+  
 }
 
 ?>

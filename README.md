@@ -1,2 +1,2 @@
-Scrap new data from news sites given the url in index.php
+Scrap new data from news sites
 # smartnews
